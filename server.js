@@ -3,97 +3,67 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
     cors: {
-        origin: "*", // Erlaubt Verbindung von überall (Wichtig für Render!)
+        origin: "*",
         methods: ["GET", "POST"]
     }
 });
 const path = require('path');
 
-// Statische Dateien aus dem "public" Ordner bereitstellen
+// Replit soll den Ordner "public" als Webseite anzeigen
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Speicher für alle laufenden Spiele
 let games = {}; 
-
-// Die festen Farben für Spieler 1 bis 6
 const PLAYER_COLORS = ["#ff4757", "#2e86de", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22"];
 
 io.on('connection', (socket) => {
     console.log('Verbindung:', socket.id);
 
-    // --- 1. SPIEL ERSTELLEN ---
+    // --- RAUM ERSTELLEN ---
     socket.on('createGame', (data) => {
         const roomName = data.roomName;
-        // Fallback, falls maxPlayers nicht gesendet wurde
         const maxPlayers = data.maxPlayers ? parseInt(data.maxPlayers) : 2; 
 
         if (games[roomName]) {
             socket.emit('errorMsg', 'Raum existiert bereits!');
             return;
         }
-
         socket.join(roomName);
         
         games[roomName] = {
             players: [],
             maxPlayers: maxPlayers,
-            settings: data.settings, // Regel-Einstellungen speichern
+            settings: data.settings,
             started: false
         };
-
-        // Host hinzufügen
         addPlayerToGame(games[roomName], socket, roomName);
-        console.log(`Spiel "${roomName}" erstellt (Max: ${maxPlayers})`);
     });
 
-    // --- 2. SPIEL BEITRETEN ---
+    // --- RAUM BEITRETEN ---
     socket.on('joinGame', (roomName) => {
         const game = games[roomName];
-
-        if (!game) {
-            socket.emit('errorMsg', 'Raum nicht gefunden!');
-            return;
-        }
-        
-        if (game.players.length >= game.maxPlayers) {
-            socket.emit('errorMsg', `Raum ist voll! (Max ${game.maxPlayers} Spieler)`);
-            return;
-        }
-        
-        if (game.started) {
-            socket.emit('errorMsg', 'Das Spiel läuft bereits!');
-            return;
-        }
+        if (!game) { socket.emit('errorMsg', 'Raum nicht gefunden!'); return; }
+        if (game.players.length >= game.maxPlayers) { socket.emit('errorMsg', 'Raum ist voll!'); return; }
+        if (game.started) { socket.emit('errorMsg', 'Spiel läuft schon!'); return; }
 
         socket.join(roomName);
         addPlayerToGame(game, socket, roomName);
-        console.log(`Spieler beigetreten zu "${roomName}"`);
     });
 
-    // --- 3. SPIEL STARTEN (Nur Host) ---
+    // --- SPIEL STARTEN ---
     socket.on('requestStartGame', (roomName) => {
         const game = games[roomName];
         if (!game) return;
-
-        // Nur Host darf starten (Index 0)
-        if (game.players[0].id !== socket.id) return;
-
-        game.started = true;
+        if (game.players[0].id !== socket.id) return; // Nur Host
         
-        // Signal an ALLE im Raum: Spiel geht los!
+        game.started = true;
         io.to(roomName).emit('gameStarted', { 
-            playerCount: game.players.length,
+            playerCount: game.players.length, 
             settings: game.settings 
         });
-        console.log(`Spiel "${roomName}" gestartet!`);
     });
 
-    // --- 4. SPIELZUG WEITERLEITEN ---
+    // --- SPIELZÜGE ---
     socket.on('sendAction', (data) => {
-        const game = games[data.room];
-        if (!game) return;
-
-        // Leitet Aktion an ALLE im Raum weiter (inklusive Sender)
         io.to(data.room).emit('receiveAction', {
             playerID: socket.id,
             type: data.actionType,
@@ -101,39 +71,17 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Hilfsfunktion: Spieler hinzufügen
     function addPlayerToGame(game, socket, roomName) {
-        const playerIndex = game.players.length;
-        
-        const newPlayer = {
-            id: socket.id,
-            index: playerIndex,
-            color: PLAYER_COLORS[playerIndex],
-            name: `Spieler ${playerIndex + 1}`
-        };
-
+        const idx = game.players.length;
+        const newPlayer = { id: socket.id, index: idx, color: PLAYER_COLORS[idx], name: `Spieler ${idx + 1}` };
         game.players.push(newPlayer);
-
-        // Antwort an den Spieler
-        socket.emit('joinedSuccess', {
-            room: roomName,
-            myIndex: playerIndex,
-            myColor: newPlayer.color,
-            isHost: (playerIndex === 0)
-        });
-
-        // Update für alle in der Lobby
+        
+        socket.emit('joinedSuccess', { room: roomName, myIndex: idx, myColor: newPlayer.color, isHost: (idx === 0) });
         io.to(roomName).emit('updatePlayerList', game.players);
     }
-
-    socket.on('disconnect', () => {
-        // Hier könnte man Aufräum-Logik einbauen
-    });
 });
 
-// --- SERVER STARTEN ---
-// WICHTIG FÜR RENDER: process.env.PORT und '0.0.0.0'
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ SERVER LÄUFT AUF PORT ${PORT}`);
+// WICHTIG: Replit nutzt Port 3000 standardmäßig
+http.listen(3000, () => {
+    console.log('SERVER LÄUFT AUF REPLIT (PORT 3000)');
 });

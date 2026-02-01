@@ -1,7 +1,7 @@
 {
-  "name": "battle-of-the-gods-online",
+  "name": "battle-gods",
   "version": "1.0.0",
-  "description": "Ein episches Multiplayer Strategie Spiel",
+  "description": "Epic Multiplayer Game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,14 +10,5 @@
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
   },
-  "engines": {
-    "node": "16.x"
-  },
-  "keywords": [
-    "node",
-    "glitch",
-    "express",
-    "socket.io",
-    "game"
-  ]
+  "keywords": []
 }
