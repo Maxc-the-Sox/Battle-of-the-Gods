@@ -1,10 +1,15 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+const io = require('socket.io')(http, {
+    cors: {
+        origin: "*", // Erlaubt Verbindung von überall (Wichtig für Render!)
+        methods: ["GET", "POST"]
+    }
+});
 const path = require('path');
 
-// Wir sagen dem Server: "Alle Dateien im Ordner 'public' sind für den Browser sichtbar"
+// Statische Dateien aus dem "public" Ordner bereitstellen
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Speicher für alle laufenden Spiele
@@ -31,8 +36,8 @@ io.on('connection', (socket) => {
         
         games[roomName] = {
             players: [],
-            maxPlayers: maxPlayers, // Das Limit aus dem Menü
-            settings: data.settings, // Die Spielregeln (Ringe, Artefakte)
+            maxPlayers: maxPlayers,
+            settings: data.settings, // Regel-Einstellungen speichern
             started: false
         };
 
@@ -50,7 +55,6 @@ io.on('connection', (socket) => {
             return;
         }
         
-        // Prüfen gegen das gewählte Limit
         if (game.players.length >= game.maxPlayers) {
             socket.emit('errorMsg', `Raum ist voll! (Max ${game.maxPlayers} Spieler)`);
             return;
@@ -76,7 +80,7 @@ io.on('connection', (socket) => {
 
         game.started = true;
         
-        // Einstellungen an ALLE senden
+        // Signal an ALLE im Raum: Spiel geht los!
         io.to(roomName).emit('gameStarted', { 
             playerCount: game.players.length,
             settings: game.settings 
@@ -123,13 +127,13 @@ io.on('connection', (socket) => {
     }
 
     socket.on('disconnect', () => {
-        // (Optional: Cleanup Logik, falls nötig)
+        // Hier könnte man Aufräum-Logik einbauen
     });
 });
 
-// --- SERVER STARTEN (MIT PORT ERKENNUNG) ---
-// WICHTIG FÜR GLITCH: process.env.PORT nutzen!
+// --- SERVER STARTEN ---
+// WICHTIG FÜR RENDER: process.env.PORT und '0.0.0.0'
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
+http.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ SERVER LÄUFT AUF PORT ${PORT}`);
 });

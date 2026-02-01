@@ -12,10 +12,10 @@
         canvas:active { cursor: grabbing; }
         .hidden { display: none !important; }
         
-        /* --- POPUP NOTIFICATION (DAS NEUE FENSTER) --- */
+        /* --- POPUP NOTIFICATION --- */
         #notification-popup {
             position: fixed;
-            top: 15%; /* Etwas weiter unten als ganz oben */
+            top: 15%; 
             left: 50%;
             transform: translateX(-50%) scale(0.8);
             background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.95) 20%, rgba(0,0,0,0.95) 80%, rgba(0,0,0,0) 100%);
@@ -29,15 +29,11 @@
             text-transform: uppercase;
             text-shadow: 0 0 15px #d4af37;
             z-index: 5000;
-            pointer-events: none; /* Klicks gehen durch */
+            pointer-events: none;
             opacity: 0;
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Bouncy Effekt */
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        
-        #notification-popup.show {
-            opacity: 1;
-            transform: translateX(-50%) scale(1);
-        }
+        #notification-popup.show { opacity: 1; transform: translateX(-50%) scale(1); }
 
         /* --- MENÜ & LOBBY --- */
         .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -70,7 +66,7 @@
         #lobby-player-list { list-style: none; padding: 0; margin: 20px 0; text-align: left; background: rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; }
         #lobby-player-list li { padding: 8px; border-bottom: 1px solid #333; font-weight: bold; }
 
-        /* --- GAME UI --- */
+        /* --- GAME UI PANELS --- */
         #ui-panel, #inventory-panel, #apo-panel { position: absolute; background: rgba(20, 20, 20, 0.95); padding: 20px; border-radius: 8px; z-index: 10; box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: none; }
         #ui-panel { top: 20px; left: 20px; border: 1px solid #d4af37; width: 280px; }
         #inventory-panel { bottom: 20px; right: 20px; border: 1px solid #3498db; width: 280px; z-index: 20; }
