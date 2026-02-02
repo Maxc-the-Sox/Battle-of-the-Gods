@@ -163,7 +163,19 @@ let mapData = { hexes: {}, landmarks: [] }; let hexSize = 40, camera = { x: 0, y
 let socket = null; let isMultiplayer = false; let myPlayerIndex = -1; let roomName = "";
 
 function updateDefaultSettings() { const count = parseInt(document.getElementById('player-count').value); document.getElementById('cfg-target').value = (count == 2) ? 7 : (count <= 4 ? 8 : 9); const rings = (count == 2) ? [3, 5, 7] : (count <= 4 ? [4, 6, 8] : [5, 7, 9]); document.getElementById('cfg-ring1').value = rings[0]; document.getElementById('cfg-ring2').value = rings[1]; document.getElementById('cfg-ring3').value = rings[2]; }
-async function loadStandardMap() { try { const response = await fetch('https://raw.githubusercontent.com/Maxc-the-Sox/Battle-of-the-Gods/refs/heads/main/Battle%20of%20the%20Gods.json'); const data = await response.json(); let pCount = isMultiplayer ? players.length : parseInt(document.getElementById('player-count').value); processLoadedMap(data, pCount); } catch (e) { alert("Ladefehler."); } }
+
+// FIX FÜR KARTEN LADEN (TIME STAMP)
+async function loadStandardMap() { 
+    try { 
+        const timestamp = new Date().getTime();
+        const response = await fetch('https://raw.githubusercontent.com/Maxc-the-Sox/Battle-of-the-Gods/main/Battle%20of%20the%20Gods.json?t=' + timestamp); 
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const data = await response.json(); 
+        let pCount = isMultiplayer ? players.length : parseInt(document.getElementById('player-count').value); 
+        processLoadedMap(data, pCount); 
+    } catch (e) { alert("Fehler beim Laden der Karte: " + e.message); } 
+}
+
 function processLoadedMap(data, count) { mapData = data; Object.values(mapData.hexes).forEach(h => h.baseTerrain = h.terrain); mapData.landmarks.forEach(lm => { if(lm.icon && !iconCache[lm.icon]) { const img = new Image(); img.src = lm.icon; img.onload = () => render(); iconCache[lm.icon] = img; } }); if (!isMultiplayer) { players = Array.from({length: count}, (_, i) => ({ id: i+1, color: ["#ff4757", "#2e86de", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22"][i], units: [], inventory: [], skipped: false })); targetArtifacts = parseInt(document.getElementById('cfg-target').value); ringThresholds = [parseInt(document.getElementById('cfg-ring1').value), parseInt(document.getElementById('cfg-ring2').value), parseInt(document.getElementById('cfg-ring3').value)]; } document.getElementById('setup-overlay').style.display = 'none'; document.getElementById('lobby-overlay').style.display = 'none'; document.getElementById('ui-panel').style.display = 'block'; document.getElementById('apo-panel').style.display = 'block'; document.getElementById('inventory-panel').style.display = 'block'; canvas.width = window.innerWidth; canvas.height = window.innerHeight; gameState = "PLACING"; currentPlayerIdx = 0; centerMap(); updateUI(); render(); updateApoUI(); }
 function centerMap() { const hexes = Object.values(mapData.hexes); if (hexes.length === 0) return; let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity; hexes.forEach(hex => { const x = hexSize * 1.5 * hex.q; const y = hexSize * Math.sqrt(3) * (hex.r + hex.q / 2); minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }); camera.x = canvas.width / 2 - ((minX + maxX) / 2) * camera.zoom; camera.y = canvas.height / 2 - ((minY + maxY) / 2) * camera.zoom; }
 function getHexDistance(q1, r1, q2, r2) { return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2; }
@@ -183,7 +195,6 @@ function executeGameLogic(rx, rz) {
         if (riverEscapeHexes.some(p => p.q === rx && p.r === rz)) { 
             selectedUnit.q = rx; selectedUnit.r = rz; checkLandmark(rx, rz); riverEscapeHexes = []; 
             currentPushUnit = null; selectedUnit = null; 
-            // Hier stand vorher pushRemaining--, das war falsch, weil es schon oben abgezogen wurde
             if (pushRemaining > 0) gameState = "SELECT_PUSH_TARGET_2"; 
             else { players[currentPlayerIdx].inventory.splice(pendingCardSlot, 1); gameState = "CHOOSING"; } 
         } 
@@ -196,14 +207,12 @@ function executeGameLogic(rx, rz) {
     else if (gameState === "SELECT_PUSH_DESTINATION") { 
         if (getHexDistance(currentPushUnit.q, currentPushUnit.r, rx, rz) === 1 && hex && !['mountains', 'void', 'water'].includes(hex.terrain)) { 
             currentPushUnit.q = rx; currentPushUnit.r = rz; 
-            pushRemaining--; // WICHTIG: Sofort abziehen!
+            pushRemaining--; // FIX: Sofort abziehen!
             
             if (!handlePushFlow(currentPushUnit)) { 
-                // Kein Fluss, normal weiter
                 if (pushRemaining > 0) { gameState = "SELECT_PUSH_TARGET_2"; currentPushUnit = null; } 
                 else { players[currentPlayerIdx].inventory.splice(pendingCardSlot, 1); gameState = "CHOOSING"; currentPushUnit = null; } 
             }
-            // Falls handlePushFlow true zurückgibt, sind wir im RIVER_ESCAPE_PUSH Modus und warten auf die Landung
         } 
     }
     updateUI(); render();
