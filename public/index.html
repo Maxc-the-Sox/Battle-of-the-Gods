@@ -164,11 +164,13 @@ let socket = null; let isMultiplayer = false; let myPlayerIndex = -1; let roomNa
 
 function updateDefaultSettings() { const count = parseInt(document.getElementById('player-count').value); document.getElementById('cfg-target').value = (count == 2) ? 7 : (count <= 4 ? 8 : 9); const rings = (count == 2) ? [3, 5, 7] : (count <= 4 ? [4, 6, 8] : [5, 7, 9]); document.getElementById('cfg-ring1').value = rings[0]; document.getElementById('cfg-ring2').value = rings[1]; document.getElementById('cfg-ring3').value = rings[2]; }
 
-// FIX FÜR KARTEN LADEN (TIME STAMP)
+// KORRIGIERTER LINK (OHNE refs/heads)
 async function loadStandardMap() { 
     try { 
         const timestamp = new Date().getTime();
-        const response = await fetch('https://raw.githubusercontent.com/Maxc-the-Sox/Battle-of-the-Gods/main/Battle%20of%20the%20Gods.json?t=' + timestamp); 
+        // Hier ist der korrekte Link
+        const url = 'https://raw.githubusercontent.com/Maxc-the-Sox/Battle-of-the-Gods/main/Battle%20of%20the%20Gods.json?t=' + timestamp;
+        const response = await fetch(url); 
         if (!response.ok) throw new Error("HTTP " + response.status);
         const data = await response.json(); 
         let pCount = isMultiplayer ? players.length : parseInt(document.getElementById('player-count').value); 
@@ -207,8 +209,7 @@ function executeGameLogic(rx, rz) {
     else if (gameState === "SELECT_PUSH_DESTINATION") { 
         if (getHexDistance(currentPushUnit.q, currentPushUnit.r, rx, rz) === 1 && hex && !['mountains', 'void', 'water'].includes(hex.terrain)) { 
             currentPushUnit.q = rx; currentPushUnit.r = rz; 
-            pushRemaining--; // FIX: Sofort abziehen!
-            
+            pushRemaining--; 
             if (!handlePushFlow(currentPushUnit)) { 
                 if (pushRemaining > 0) { gameState = "SELECT_PUSH_TARGET_2"; currentPushUnit = null; } 
                 else { players[currentPlayerIdx].inventory.splice(pendingCardSlot, 1); gameState = "CHOOSING"; currentPushUnit = null; } 
