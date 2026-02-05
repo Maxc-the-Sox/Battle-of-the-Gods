@@ -8,30 +8,31 @@ const io = require('socket.io')(http, {
     }
 });
 const path = require('path');
-const https = require('https'); // Für den Karten-Download
+const https = require('https'); // Wichtig für den Download
 
-// Replit soll den Ordner "public" als Webseite anzeigen
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- NEU: KARTEN-PROXY (Server holt die Karte von GitHub) ---
+// --- DER KARTEN-LADER (FIX FÜR REPLIT) ---
 app.get('/api/map', (req, res) => {
-    // Der korrekte Raw-Link
-    const url = 'https://raw.githubusercontent.com/Maxc-the-Sox/Battle-of-the-Gods/main/Battle%20of%20the%20Gods.json';
+    // Hier nutzen wir encodeURI, damit die Leerzeichen in "Battle of the Gods" zu "%20" werden
+    const rawUrl = 'https://raw.githubusercontent.com/Maxc-the-Sox/Battle-of-the-Gods/main/Battle of the Gods.json';
+    const url = encodeURI(rawUrl);
     
     https.get(url, (externalRes) => {
         let data = '';
         externalRes.on('data', (chunk) => { data += chunk; });
         externalRes.on('end', () => {
             try {
-                // Wir senden die JSON direkt an dein Spiel weiter
+                // Prüfen ob wir wirklich JSON bekommen haben
                 const jsonData = JSON.parse(data);
                 res.json(jsonData);
             } catch (e) {
-                res.status(500).send("Fehler beim Parsen der Karte");
+                console.error("Fehler beim Parsen:", data.substring(0, 100)); // Zeigt die ersten 100 Zeichen des Fehlers
+                res.status(500).send("Fehler: GitHub hat kein gültiges JSON geliefert. (Evtl. 404?)");
             }
         });
     }).on("error", (err) => {
-        res.status(500).send("Fehler beim Laden von GitHub: " + err.message);
+        res.status(500).send("Server-Fehler beim Laden von GitHub: " + err.message);
     });
 });
 
@@ -41,7 +42,6 @@ const PLAYER_COLORS = ["#ff4757", "#2e86de", "#2ecc71", "#f1c40f", "#9b59b6", "#
 io.on('connection', (socket) => {
     console.log('Verbindung:', socket.id);
 
-    // --- RAUM ERSTELLEN ---
     socket.on('createGame', (data) => {
         const roomName = data.roomName;
         const maxPlayers = data.maxPlayers ? parseInt(data.maxPlayers) : 2; 
@@ -61,7 +61,6 @@ io.on('connection', (socket) => {
         addPlayerToGame(games[roomName], socket, roomName);
     });
 
-    // --- RAUM BEITRETEN ---
     socket.on('joinGame', (roomName) => {
         const game = games[roomName];
         if (!game) { socket.emit('errorMsg', 'Raum nicht gefunden!'); return; }
@@ -72,11 +71,10 @@ io.on('connection', (socket) => {
         addPlayerToGame(game, socket, roomName);
     });
 
-    // --- SPIEL STARTEN ---
     socket.on('requestStartGame', (roomName) => {
         const game = games[roomName];
         if (!game) return;
-        if (game.players[0].id !== socket.id) return; // Nur Host
+        if (game.players[0].id !== socket.id) return;
         
         game.started = true;
         io.to(roomName).emit('gameStarted', { 
@@ -85,7 +83,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // --- SPIELZÜGE ---
     socket.on('sendAction', (data) => {
         io.to(data.room).emit('receiveAction', {
             playerID: socket.id,
@@ -104,7 +101,6 @@ io.on('connection', (socket) => {
     }
 });
 
-// WICHTIG: Replit nutzt Port 3000 standardmäßig und 0.0.0.0 Binding
 http.listen(3000, '0.0.0.0', () => {
     console.log('SERVER LÄUFT AUF REPLIT (PORT 3000)');
 });
