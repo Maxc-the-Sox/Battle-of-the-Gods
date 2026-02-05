@@ -141,8 +141,23 @@
 <canvas id="gameCanvas"></canvas>
 
 <script>
-const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d'); const hexDirections = [{q:1,r:0}, {q:0,r:1}, {q:-1,r:1}, {q:-1,r:0}, {q:0,r:-1}, {q:1,r:-1}]; const terrainColors = { water: '#4fa3e0', river: '#81ecec', desert: '#d4bb7e', swamp: '#3d4a3d', plains: '#5a8d46', forest: '#1b4d3e', mountains: '#4d4d4d', road: '#333333', hills: '#7f8c8d', tundra: '#b2bec3', void: '#000' }; const terrainNames = { water: 'Wasser', river: 'Fluss', desert: 'Wüste', swamp: 'STARTBURG', plains: 'Ebene', forest: 'Wald', mountains: 'Gebirge', road: 'STRASSE', hills: 'Hügel', tundra: 'Tundra', void: 'VERNICHTET' };
-let mapData = { hexes: {}, landmarks: [] }; let hexSize = 40, camera = { x: 0, y: 0, zoom: 0.8 }, iconCache = {}; let players = [], currentPlayerIdx = 0, gameState = "SETUP"; let drawPoints = 2, actionPoints = 2, collectedArtifacts = 0; let targetArtifacts = 7, ringThresholds = [3, 5, 7], closedRings = { outer: false, middle: false, inner: false }; let pathDrawn = false, pathMoved = false, isDragging = false, lastMouse = { x: 0, y: 0 }; let currentCard = null, diceValue = 0, placementsRemaining = 0, pendingRiverHex = null; let selectedUnit = null, riverEscapeHexes = [], pendingCardSlot = null, pushRemaining = 0, currentPushUnit = null, boatLandingTargets = []; let isGameOver = false;
+// --- GLOBALS ---
+const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d'); 
+const hexDirections = [{q:1,r:0}, {q:0,r:1}, {q:-1,r:1}, {q:-1,r:0}, {q:0,r:-1}, {q:1,r:-1}]; 
+const terrainColors = { water: '#4fa3e0', river: '#81ecec', desert: '#d4bb7e', swamp: '#3d4a3d', plains: '#5a8d46', forest: '#1b4d3e', mountains: '#4d4d4d', road: '#333333', hills: '#7f8c8d', tundra: '#b2bec3', void: '#000' }; 
+const terrainNames = { water: 'Wasser', river: 'Fluss', desert: 'Wüste', swamp: 'STARTBURG', plains: 'Ebene', forest: 'Wald', mountains: 'Gebirge', road: 'STRASSE', hills: 'Hügel', tundra: 'Tundra', void: 'VERNICHTET' };
+
+let mapData = { hexes: {}, landmarks: [] }; 
+let hexSize = 40, camera = { x: 0, y: 0, zoom: 0.8 }, iconCache = {}; 
+let players = [], currentPlayerIdx = 0, gameState = "SETUP"; 
+let drawPoints = 2, actionPoints = 2, collectedArtifacts = 0; 
+let targetArtifacts = 7, ringThresholds = [3, 5, 7], closedRings = { outer: false, middle: false, inner: false }; 
+let pathDrawn = false, pathMoved = false, isDragging = false, lastMouse = { x: 0, y: 0 }; 
+let currentCard = null, diceValue = 0, placementsRemaining = 0, pendingRiverHex = null; 
+let selectedUnit = null, riverEscapeHexes = [], pendingCardSlot = null, pushRemaining = 0, currentPushUnit = null, boatLandingTargets = []; 
+let isGameOver = false;
+
+// NETZWERK
 let socket = null; let isMultiplayer = false; let myPlayerIndex = -1; let roomName = "";
 
 function updateDefaultSettings() { const count = parseInt(document.getElementById('player-count').value); document.getElementById('cfg-target').value = (count == 2) ? 7 : (count <= 4 ? 8 : 9); const rings = (count == 2) ? [3, 5, 7] : (count <= 4 ? [4, 6, 8] : [5, 7, 9]); document.getElementById('cfg-ring1').value = rings[0]; document.getElementById('cfg-ring2').value = rings[1]; document.getElementById('cfg-ring3').value = rings[2]; }
@@ -150,9 +165,8 @@ function updateDefaultSettings() { const count = parseInt(document.getElementByI
 // FIX: LÄDT KARTENDATEN JETZT VOM EIGENEN SERVER (/api/map), UM CORB/CORS FEHLER ZU VERMEIDEN
 async function loadStandardMap() { 
     try { 
-        // WICHTIG: Kein direkter fetch zu GitHub mehr!
         const response = await fetch('/api/map'); 
-        if (!response.ok) throw new Error("Server antwortet nicht");
+        if (!response.ok) throw new Error("Server Fehler");
         const data = await response.json(); 
         let pCount = isMultiplayer ? players.length : parseInt(document.getElementById('player-count').value); 
         processLoadedMap(data, pCount); 
@@ -249,8 +263,127 @@ function checkApocalypse() { if (collectedArtifacts >= ringThresholds[0] && !clo
 function triggerVictory(player, reason = "Tempel erreicht!") { isGameOver = true; camera.zoom = 0.5; centerMap(); render(); document.getElementById('ui-panel').classList.add('hidden'); document.getElementById('inventory-panel').classList.add('hidden'); document.getElementById('victory-panel').classList.remove('hidden'); document.getElementById('winner-name').innerText = `Spieler ${player.id} hat gewonnen!`; document.getElementById('winner-name').style.color = player.color; document.getElementById('victory-reason').innerText = reason; }
 function checkLandmark(q, r) { const landmark = mapData.landmarks.find(l => l.q === q && l.r === r); if (!landmark) return; if (landmark.icon && landmark.icon.toLowerCase().includes('temple')) { if (collectedArtifacts >= targetArtifacts) triggerVictory(players[currentPlayerIdx]); } else if (!landmark.looted) { landmark.looted = true; collectedArtifacts++; checkApocalypse(); updateUI(); updateApoUI(); } }
 function getConnectedRivers(startQ, startR) { let visited = new Set(); let queue = [{q: startQ, r: startR}]; let riverGroup = []; while(queue.length > 0) { let curr = queue.shift(); let key = `${curr.q},${curr.r}`; if(visited.has(key)) continue; visited.add(key); riverGroup.push(curr); for(let d of hexDirections) { let nQ = curr.q + d.q, nR = curr.r + d.r; let nHex = mapData.hexes[`${nQ},${nR}`]; if(nHex && nHex.terrain === 'river' && !visited.has(`${nQ},${nR}`)) queue.push({q: nQ, r: nR}); } } return riverGroup; }
-// FIX FLUSS LOGIK
-function handlePushFlow(unit) { let curHex = mapData.hexes[`${unit.q},${unit.r}`]; while (curHex && curHex.terrain === 'river') { let nQ = unit.q + hexDirections[curHex.direction || 0].q, nR = unit.r + hexDirections[curHex.direction || 0].r, nH = mapData.hexes[`${nQ},${nR}`]; const occupied = players.some(p => p.units.some(u => u.q === nQ && u.r === nR)); if (nH && !['mountains', 'water', 'void'].includes(nH.terrain) && !occupied) { unit.q = nQ; unit.r = nR; checkLandmark(nQ, nR); curHex = nH; } else if (nH) { riverEscapeHexes = hexDirections.map(d => ({q: unit.q+d.q, r: unit.r+d.r})).filter(p => { const h = mapData.hexes[`${p.q},${p.r}`]; return h && !['mountains', 'water', 'void', 'river'].includes(h.terrain); }); if (riverEscapeHexes.length > 0) { selectedUnit = unit; gameState = "RIVER_ESCAPE_PUSH"; return true; } else break; } else break; } return false; }
+
+// --- BUGFIX: SCHUBSEN & FLUSS (RIVER PUSH) ---
+function handlePushFlow(unit) {
+    let curHex = mapData.hexes[`${unit.q},${unit.r}`];
+    while (curHex && curHex.terrain === 'river') {
+        let nQ = unit.q + hexDirections[curHex.direction || 0].q;
+        let nR = unit.r + hexDirections[curHex.direction || 0].r;
+        let nH = mapData.hexes[`${nQ},${nR}`];
+        
+        const occupied = players.some(p => p.units.some(u => u.q === nQ && u.r === nR));
+        
+        if (nH && !['mountains', 'water', 'void'].includes(nH.terrain) && !occupied) {
+            // Sicher weiterfließen
+            unit.q = nQ; unit.r = nR; checkLandmark(nQ, nR); curHex = nH;
+        } else if (nH) {
+            // Blockiert -> Anlanden nötig!
+            riverEscapeHexes = hexDirections.map(d => ({q: unit.q+d.q, r: unit.r+d.r})).filter(p => { 
+                const h = mapData.hexes[`${p.q},${p.r}`]; 
+                return h && !['mountains', 'water', 'void', 'river'].includes(h.terrain); 
+            });
+            if (riverEscapeHexes.length > 0) { 
+                selectedUnit = unit; 
+                gameState = "RIVER_ESCAPE_PUSH"; // WICHTIG: Eigener Status
+                return true; // Signalisiert: "Wir warten auf Spieler-Input"
+            } else break;
+        } else break;
+    }
+    return false; // Kein Fluss oder fertig geflossen
+}
+
+// --- UPDATE UI FUNCTION ---
+function updateUI() {
+    const p = players[currentPlayerIdx], guide = document.getElementById('guide-text');
+    document.getElementById('player-turn-display').innerText = `Spieler ${p?.id || '?'}`;
+    document.getElementById('player-turn-display').style.borderColor = p?.color || '#d4af37';
+    document.getElementById('artifact-display').innerText = `🏆 Artefakte: ${collectedArtifacts} / ${targetArtifacts}`;
+    document.getElementById('cards-left-display').innerText = drawPoints;
+    
+    document.getElementById('btn-choice-draw').disabled = pathDrawn;
+    const canMove = !pathMoved && actionPoints > 0;
+    document.getElementById('btn-choice-move').disabled = !canMove;
+    if (canMove) {
+        document.getElementById('btn-choice-move').style.opacity = "1";
+        document.getElementById('btn-choice-move').style.cursor = "pointer";
+    } else {
+        document.getElementById('btn-choice-move').style.opacity = "0.5";
+        document.getElementById('btn-choice-move').style.cursor = "not-allowed";
+    }
+
+    const states = { 
+        PLACING: "FIGUR SETZEN", 
+        CHOOSING: "AKTION WÄHLEN", 
+        DRAWING: "STAPEL WÄHLEN", 
+        DICE_ROLL: "WÜRFELN!", 
+        PLACING_TERRAIN: `${placementsRemaining}X SETZEN`, 
+        ROTATING_RIVER: "FLUSS DREHEN", 
+        ACTION_VIEW: "AKTION GEZOGEN", 
+        SWAP_CARD: "INVENTAR TAUSCHEN", 
+        MOVING: selectedUnit ? "ZIEHEN" : "FIGUR WÄHLEN", 
+        SELECT_PUSH_TARGET_1: `GEGNER WÄHLEN (${pushRemaining})`, 
+        SELECT_PUSH_TARGET_2: `GEGNER WÄHLEN (${pushRemaining})`, 
+        SELECT_PUSH_DESTINATION: "ZIELFELD WÄHLEN", 
+        RIVER_ESCAPE: "ANS UFER RETTEN", 
+        RIVER_ESCAPE_PUSH: "GEGNER RETTEN", 
+        BOAT_LANDING: "UFER WÄHLEN" 
+    };
+    
+    guide.innerText = states[gameState] || "BITTE WARTEN...";
+    
+    document.getElementById('choice-area').classList.toggle('hidden', gameState !== 'CHOOSING');
+    document.getElementById('drawing-area').classList.toggle('hidden', !['DRAWING', 'DICE_ROLL', 'PLACING_TERRAIN', 'ROTATING_RIVER', 'ACTION_VIEW', 'DRAWING_DONE', 'SWAP_CARD'].includes(gameState));
+    document.getElementById('draw-selection').classList.toggle('hidden', gameState !== 'DRAWING');
+    document.getElementById('active-card').classList.toggle('hidden', !['DICE_ROLL', 'PLACING_TERRAIN', 'ROTATING_RIVER', 'ACTION_VIEW', 'SWAP_CARD'].includes(gameState));
+    document.getElementById('dice-section').classList.toggle('hidden', !['DICE_ROLL', 'PLACING_TERRAIN'].includes(gameState));
+    document.getElementById('btn-roll-dice').classList.toggle('hidden', gameState !== 'DICE_ROLL');
+    document.getElementById('rotation-controls').classList.toggle('hidden', gameState !== 'ROTATING_RIVER');
+    document.getElementById('btn-finish-drawing').classList.toggle('hidden', !['DRAWING', 'DICE_ROLL', 'PLACING_TERRAIN', 'ROTATING_RIVER', 'ACTION_VIEW', 'DRAWING_DONE'].includes(gameState));
+    document.getElementById('btn-discard-new').classList.toggle('hidden', gameState !== 'SWAP_CARD');
+    document.getElementById('movement-area').classList.toggle('hidden', gameState !== 'MOVING' && gameState !== 'RIVER_ESCAPE' && gameState !== 'RIVER_ESCAPE_PUSH' && gameState !== 'BOAT_LANDING'); 
+    
+    document.getElementById('ap-display').innerText = `AKTIONSPUNKTE: ${actionPoints}`;
+    
+    if (currentCard) { 
+        document.getElementById('card-icon').innerText = currentCard.icon; 
+        document.getElementById('card-name').innerText = currentCard.name; 
+        if(gameState === 'ACTION_VIEW') setTimeout(() => { if(gameState === 'ACTION_VIEW') finishCard(); }, 1500); 
+    }
+    
+    if (gameState === 'PLACING_TERRAIN' || gameState === 'ROTATING_RIVER') document.getElementById('placement-info').innerText = `NOCH ${placementsRemaining}`;
+    
+    for(let i=0; i<3; i++) { 
+        const slot = document.getElementById(`inv-slot-${i}`), card = p ? p.inventory[i] : null; 
+        slot.querySelector('.inv-icon').innerText = card ? card.icon : ""; 
+        slot.querySelector('.inv-name').innerText = card ? card.name : "Leer"; 
+        slot.classList.toggle('filled', !!card); 
+        slot.classList.toggle('swap-mode', gameState === "SWAP_CARD" && !!card); 
+    }
+}
+
+// --- RENDER FUNCTION ---
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height); const s = hexSize * camera.zoom;
+    Object.values(mapData.hexes).forEach(hex => {
+        const x = (hexSize*1.5*hex.q)*camera.zoom+camera.x, y = (hexSize*Math.sqrt(3)*(hex.r+hex.q/2))*camera.zoom+camera.y;
+        ctx.beginPath(); for (let i=6; i--;) ctx.lineTo(x + s*Math.cos(Math.PI/3*i), y + s*Math.sin(Math.PI/3*i)); ctx.closePath();
+        ctx.fillStyle = terrainColors[hex.terrain] || '#2f3640'; ctx.fill(); 
+        
+        let isBoatTarget = (gameState === "BOAT_LANDING" && boatLandingTargets.some(t => t.q === hex.q && t.r === hex.r)); 
+        let isEscapeTarget = ((gameState === "RIVER_ESCAPE" || gameState === "RIVER_ESCAPE_PUSH") && riverEscapeHexes.some(p => p.q === hex.q && p.r === hex.r));
+        
+        if (isBoatTarget || isEscapeTarget) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; } else { ctx.strokeStyle = "rgba(0,0,0,0.1)"; ctx.lineWidth = 1; } ctx.stroke();
+        if (hex.terrain === 'void') { ctx.font = `${s}px Arial`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "white"; ctx.fillText("☁️", x, y); } else if (['mountains','forest','swamp','water'].includes(hex.terrain)) { ctx.font = `bold ${s*0.9}px Arial`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "white"; ctx.fillText({mountains:"⛰️",forest:"🌲",swamp:"🏰",water:"🌊"}[hex.terrain], x, y); } if (hex.terrain === 'river') { ctx.save(); ctx.translate(x, y); ctx.rotate(((hex.direction || 0)*60+30)*Math.PI/180); ctx.font = `bold ${s*1.2}px Arial`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "white"; ctx.fillText("➜", s*0.3, 0); ctx.restore(); }
+    });
+    mapData.landmarks.forEach(lm => { const x = (hexSize*1.5*lm.q)*camera.zoom+camera.x, y = (hexSize*Math.sqrt(3)*(lm.r+lm.q/2))*camera.zoom+camera.y; if (iconCache[lm.icon] && mapData.hexes[`${lm.q},${lm.r}`].terrain !== 'void') { ctx.save(); if (lm.looted) ctx.filter = 'grayscale(100%) sepia(100%) hue-rotate(-50deg) saturate(600%)'; ctx.drawImage(iconCache[lm.icon], x-s*0.7, y-s*0.7, s*1.4, s*1.4); ctx.restore(); } });
+    let unitMap = {}; players.forEach(p => p.units.forEach(u => { const key = `${u.q},${u.r}`; if(!unitMap[key]) unitMap[key] = []; unitMap[key].push({ ...u, color: p.color, original: u }); }));
+    Object.keys(unitMap).forEach(key => { const group = unitMap[key], [q, r] = key.split(',').map(Number), centerX = (hexSize*1.5*q)*camera.zoom+camera.x, centerY = (hexSize*Math.sqrt(3)*(r+q/2))*camera.zoom+camera.y; let spread = s * 0.35, radius = group.length > 1 ? s * 0.25 : s * 0.45; group.forEach((item, i) => { let offsetX = 0, offsetY = 0; if (group.length === 2) { offsetX = (i===0 ? -1 : 1) * spread * 0.7; offsetY = (i===0 ? -1 : 1) * spread * 0.7; } else if (group.length > 2) { let angle = i * (Math.PI * 2 / group.length) - Math.PI/2; offsetX = Math.cos(angle) * spread; offsetY = Math.sin(angle) * spread; } ctx.beginPath(); ctx.arc(centerX + offsetX, centerY + offsetY, radius, 0, Math.PI*2); ctx.fillStyle = item.color; ctx.fill(); 
+    // SELECTION HIGHLIGHT
+    ctx.strokeStyle = (item.original === selectedUnit || item.original === currentPushUnit) ? "white" : "black"; 
+    ctx.lineWidth = (item.original === selectedUnit || item.original === currentPushUnit) ? 4 : 2; 
+    ctx.stroke(); }); });
+}
 
 canvas.width = window.innerWidth; canvas.height = window.innerHeight; updateDefaultSettings();
 </script>
